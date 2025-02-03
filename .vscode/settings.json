@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "hlsplaylist.h": "c",
+        "cstdio": "cpp",
+        "print": "cpp"
+    }
+}

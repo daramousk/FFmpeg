@@ -132,6 +132,7 @@ int av_add_index_entry(AVStream *st, int64_t pos, int64_t timestamp,
 int ff_index_search_timestamp(const AVIndexEntry *entries, int nb_entries,
                               int64_t wanted_timestamp, int flags)
 {
+    av_log(NULL, AV_LOG_WARNING, "\nff_index_search_timestamp\n");
     int a, b, m;
     int64_t timestamp;
 
@@ -597,6 +598,7 @@ static int seek_frame_generic(AVFormatContext *s, int stream_index,
 static int seek_frame_internal(AVFormatContext *s, int stream_index,
                                int64_t timestamp, int flags)
 {
+    av_log(NULL, AV_LOG_WARNING, "\nseek_frame_internal timestamp: %lld stream_index: %d\n", timestamp, stream_index);
     AVStream *st;
     int ret;
 
@@ -614,12 +616,15 @@ static int seek_frame_internal(AVFormatContext *s, int stream_index,
 
         st = s->streams[stream_index];
         /* timestamp for default must be expressed in AV_TIME_BASE units */
+        av_log(NULL, AV_LOG_WARNING, "\nav_rescale before: timestamp: %lld", timestamp);
         timestamp = av_rescale(timestamp, st->time_base.den,
                                AV_TIME_BASE * (int64_t) st->time_base.num);
+        av_log(NULL, AV_LOG_WARNING, "\nav_rescale after: timestamp: %lld", timestamp);
     }
 
     /* first, we try the format specific seek */
     if (ffifmt(s->iformat)->read_seek) {
+        av_log(NULL, AV_LOG_WARNING, "\nTrying purpose specific timestamp");
         ff_read_frame_flush(s);
         ret = ffifmt(s->iformat)->read_seek(s, stream_index, timestamp, flags);
     } else
@@ -642,9 +647,9 @@ int av_seek_frame(AVFormatContext *s, int stream_index,
                   int64_t timestamp, int flags)
 {
     int ret;
-
+    av_log(NULL, AV_LOG_WARNING, "\nav_seek_frame timestamp: %lld\n", timestamp);
     if (ffifmt(s->iformat)->read_seek2 && !ffifmt(s->iformat)->read_seek) {
-        int64_t min_ts = INT64_MIN, max_ts = INT64_MAX;
+        int64_t min_ts = INT64_MIN, max_ts = INT64_MAX; // min/max should be whatever the timestamps are from the playlist?
         if ((flags & AVSEEK_FLAG_BACKWARD))
             max_ts = timestamp;
         else
@@ -664,6 +669,7 @@ int av_seek_frame(AVFormatContext *s, int stream_index,
 int avformat_seek_file(AVFormatContext *s, int stream_index, int64_t min_ts,
                        int64_t ts, int64_t max_ts, int flags)
 {
+    av_log(NULL, AV_LOG_WARNING, "\navformat_seek_file\n min_ts %lld \t max_ts %lld \t ts %lld", min_ts, max_ts, ts);
     if (min_ts > ts || max_ts < ts)
         return -1;
     if (stream_index < -1 || stream_index >= (int)s->nb_streams)
@@ -705,6 +711,7 @@ int avformat_seek_file(AVFormatContext *s, int stream_index, int64_t min_ts,
     // Note the old API has somewhat different semantics.
     if (ffifmt(s->iformat)->read_seek || 1) {
         int dir = (ts - (uint64_t)min_ts > (uint64_t)max_ts - ts ? AVSEEK_FLAG_BACKWARD : 0);
+        av_log(NULL, AV_LOG_WARNING, "\ndir == %d\n", dir);
         int ret = av_seek_frame(s, stream_index, ts, flags | dir);
         if (ret < 0 && ts != min_ts && max_ts != ts) {
             ret = av_seek_frame(s, stream_index, dir ? max_ts : min_ts, flags | dir);

@@ -180,6 +180,7 @@ static void report_new_stream(Demuxer *d, const AVPacket *pkt)
 
 static int seek_to_start(Demuxer *d, Timestamp end_pts)
 {
+    av_log(NULL, AV_LOG_WARNING, "\nseek_to_start\n");
     InputFile    *ifile = &d->f;
     AVFormatContext *is = ifile->ctx;
     int ret;
@@ -1819,8 +1820,10 @@ int ifile_open(const OptionsContext *o, const char *filename, Scheduler *sch)
                 seek_timestamp -= 3*AV_TIME_BASE / 23;
             }
         }
+        av_log(NULL, AV_LOG_WARNING, "\nifile_open seek_timestamp: %lld", seek_timestamp);
         ret = avformat_seek_file(ic, -1, INT64_MIN, seek_timestamp, seek_timestamp, 0);
         if (ret < 0) {
+            av_log(d, AV_LOG_WARNING, "\nreturn value %d\n", ret);
             av_log(d, AV_LOG_WARNING, "could not seek to position %0.3f\n",
                    (double)timestamp / AV_TIME_BASE);
         }

@@ -641,6 +641,7 @@ static int open_url_keepalive(AVFormatContext *s, AVIOContext **pb,
     if (ret < 0) {
         ff_format_io_close(s, pb);
     }
+    av_log(NULL, AV_LOG_WARNING, "open_url_keepalive returns: %d", ret);
     return ret;
 #endif
 }
@@ -775,6 +776,7 @@ static int test_segment(AVFormatContext *s, const AVInputFormat *in_fmt, struct 
 static int parse_playlist(HLSContext *c, const char *url,
                           struct playlist *pls, AVIOContext *in)
 {
+    av_log(NULL, AV_LOG_WARNING, "parse_playlist");
     int ret = 0, is_segment = 0, is_variant = 0;
     int64_t duration = 0;
     enum KeyType key_type = KEY_NONE;
@@ -833,11 +835,13 @@ static int parse_playlist(HLSContext *c, const char *url,
     ff_get_chomp_line(in, line, sizeof(line));
     if (strcmp(line, "#EXTM3U")) {
         ret = AVERROR_INVALIDDATA;
+        av_log(NULL, AV_LOG_WARNING, "\n AVERROR_INVALIDDATA");
         goto fail;
     }
-
+    av_log(NULL, AV_LOG_WARNING, "\nif pls?: %d", pls == NULL);
     if (pls) {
         prev_start_seq_no = pls->start_seq_no;
+        av_log(NULL, AV_LOG_WARNING, "SETTING PREV_SEGMENTS url of the first one: %s", pls->segments[0]->url);
         prev_segments = pls->segments;
         prev_n_segments = pls->n_segments;
         pls->segments = NULL;
@@ -876,19 +880,24 @@ static int parse_playlist(HLSContext *c, const char *url,
         } else if (av_strstart(line, "#EXT-X-TARGETDURATION:", &ptr)) {
             int64_t t;
             ret = ensure_playlist(c, &pls, url);
-            if (ret < 0)
+            if (ret < 0) {
+                av_log(NULL, AV_LOG_WARNING, "\n ensure_playlist returned %d", ret);
                 goto fail;
+            }
             t = strtoll(ptr, NULL, 10);
             if (t < 0 || t >= INT64_MAX / AV_TIME_BASE) {
                 ret = AVERROR_INVALIDDATA;
+                av_log(NULL, AV_LOG_WARNING, "\n AVERROR_INVALIDDATA INT64_MAX");
                 goto fail;
             }
             pls->target_duration = t * AV_TIME_BASE;
         } else if (av_strstart(line, "#EXT-X-MEDIA-SEQUENCE:", &ptr)) {
             uint64_t seq_no;
             ret = ensure_playlist(c, &pls, url);
-            if (ret < 0)
+            if (ret < 0) {
+                av_log(NULL, AV_LOG_WARNING, "\n ensure_playlist at 856 returned: %d", ret);
                 goto fail;
+            }
             seq_no = strtoull(ptr, NULL, 10);
             if (seq_no > INT64_MAX/2) {
                 av_log(c->ctx, AV_LOG_DEBUG, "MEDIA-SEQUENCE higher than "
@@ -898,8 +907,10 @@ static int parse_playlist(HLSContext *c, const char *url,
             pls->start_seq_no = seq_no;
         } else if (av_strstart(line, "#EXT-X-PLAYLIST-TYPE:", &ptr)) {
             ret = ensure_playlist(c, &pls, url);
-            if (ret < 0)
+            if (ret < 0) {
+                av_log(NULL, AV_LOG_WARNING, "\n ensure_playlist EXT-X-PLAYLIST-TYPE returned: %d", ret);
                 goto fail;
+            }
             if (!strcmp(ptr, "EVENT"))
                 pls->type = PLS_TYPE_EVENT;
             else if (!strcmp(ptr, "VOD"))
@@ -907,13 +918,16 @@ static int parse_playlist(HLSContext *c, const char *url,
         } else if (av_strstart(line, "#EXT-X-MAP:", &ptr)) {
             struct init_section_info info = {{0}};
             ret = ensure_playlist(c, &pls, url);
-            if (ret < 0)
+            if (ret < 0) {
+                av_log(NULL, AV_LOG_WARNING, "\n ensure_playlist EXT-X-MAP returned: %d", ret);
                 goto fail;
+            }
             ff_parse_key_value(ptr, (ff_parse_key_val_cb) handle_init_section_args,
                                &info);
             cur_init_section = new_init_section(pls, &info, url);
             if (!cur_init_section) {
                 ret = AVERROR(ENOMEM);
+                av_log(NULL, AV_LOG_WARNING, "\n ENOMEM: %d", ret);
                 goto fail;
             }
             cur_init_section->key_type = key_type;
@@ -930,12 +944,14 @@ static int parse_playlist(HLSContext *c, const char *url,
                 if (!tmp_str[0]) {
                     av_free(cur_init_section);
                     ret = AVERROR_INVALIDDATA;
+                    av_log(NULL, AV_LOG_WARNING, "\n KEY_NONE AVERROR_INVALIDDATA");
                     goto fail;
                 }
                 cur_init_section->key = av_strdup(tmp_str);
                 if (!cur_init_section->key) {
                     av_free(cur_init_section);
                     ret = AVERROR(ENOMEM);
+                    av_log(NULL, AV_LOG_WARNING, "\n KEY_NONE ENOMEM");
                     goto fail;
                 }
             } else {
@@ -946,6 +962,7 @@ static int parse_playlist(HLSContext *c, const char *url,
             const char *time_offset_value = NULL;
             ret = ensure_playlist(c, &pls, url);
             if (ret < 0) {
+                av_log(NULL, AV_LOG_WARNING, "\n EXT-X-START: %d", ret);
                 goto fail;
             }
             if (av_strstart(ptr, "TIME-OFFSET=", &time_offset_value)) {
@@ -975,6 +992,7 @@ static int parse_playlist(HLSContext *c, const char *url,
             if (is_variant) {
                 if (!new_variant(c, &variant_info, line, url)) {
                     ret = AVERROR(ENOMEM);
+                    av_log(NULL, AV_LOG_WARNING, "\n is_variant ENOMEM");
                     goto fail;
                 }
                 is_variant = 0;
@@ -982,11 +1000,16 @@ static int parse_playlist(HLSContext *c, const char *url,
             if (is_segment) {
                 struct segment *seg;
                 ret = ensure_playlist(c, &pls, url);
-                if (ret < 0)
+                //av_log(NULL, AV_LOG_WARNING, "Checking segment %s", tmp_str);
+                //av_log(NULL, AV_LOG_WARNING, "\n first ensure_playlist returns %d", ret);
+                if (ret < 0) {
+                    av_log(NULL, AV_LOG_WARNING, "\n is_segment: %d", ret);
                     goto fail;
+                }
                 seg = av_malloc(sizeof(struct segment));
                 if (!seg) {
                     ret = AVERROR(ENOMEM);
+                    av_log(NULL, AV_LOG_WARNING, "\n !seg: %d", ret);
                     goto fail;
                 }
                 if (has_iv) {
@@ -1002,12 +1025,14 @@ static int parse_playlist(HLSContext *c, const char *url,
                     if (!tmp_str[0]) {
                         ret = AVERROR_INVALIDDATA;
                         av_free(seg);
+                        av_log(NULL, AV_LOG_WARNING, "\n AVERROR_INVALIDDATA: %d", ret);
                         goto fail;
                     }
                     seg->key = av_strdup(tmp_str);
                     if (!seg->key) {
                         av_free(seg);
                         ret = AVERROR(ENOMEM);
+                        av_log(NULL, AV_LOG_WARNING, "\n ENOMEM: %d", ret);
                         goto fail;
                     }
                 } else {
@@ -1020,6 +1045,7 @@ static int parse_playlist(HLSContext *c, const char *url,
                     if (seg->key)
                         av_free(seg->key);
                     av_free(seg);
+                    av_log(NULL, AV_LOG_WARNING, "\n AVERROR_INVALIDDATA: %d", ret);
                     goto fail;
                 }
                 seg->url = av_strdup(tmp_str);
@@ -1027,6 +1053,7 @@ static int parse_playlist(HLSContext *c, const char *url,
                     av_free(seg->key);
                     av_free(seg);
                     ret = AVERROR(ENOMEM);
+                    av_log(NULL, AV_LOG_WARNING, "\n ENOMEM: %d", ret);
                     goto fail;
                 }
 
@@ -1045,7 +1072,7 @@ static int parse_playlist(HLSContext *c, const char *url,
                 }
                 seg->duration = duration;
                 seg->key_type = key_type;
-                dynarray_add(&pls->segments, &pls->n_segments, seg);
+                dynarray_add(&pls->segments, &pls->n_segments, seg); // TODO this is where the segment is added to the playlist
                 is_segment = 0;
 
                 seg->size = seg_size;
@@ -1062,7 +1089,9 @@ static int parse_playlist(HLSContext *c, const char *url,
             }
         }
     }
+    av_log(NULL, AV_LOG_WARNING, "prev_segments? %d", prev_segments == NULL);
     if (prev_segments) {
+        av_log(NULL, AV_LOG_WARNING, "prev_segments %s", prev_segments[0]->url);
         if (pls->start_seq_no > prev_start_seq_no && c->first_timestamp != AV_NOPTS_VALUE) {
             int64_t prev_timestamp = c->first_timestamp;
             int i;
@@ -1085,6 +1114,7 @@ static int parse_playlist(HLSContext *c, const char *url,
         pls->last_load_time = av_gettime_relative();
 
 fail:
+    av_log(NULL, AV_LOG_WARNING, "\nFAIL: marking hls as AVFMTCTX_UNSEEKABLE");
     av_free(new_url);
     if (close_in)
         ff_format_io_close(c->ctx, &in);
@@ -1092,7 +1122,13 @@ fail:
     if (!c->n_variants || !c->variants[0]->n_playlists ||
         !(c->variants[0]->playlists[0]->finished ||
           c->variants[0]->playlists[0]->type == PLS_TYPE_EVENT))
+          {
+                av_log(NULL, AV_LOG_WARNING, "\nFAIL: marking hls as AVFMTCTX_UNSEEKABLE");
         c->ctx->ctx_flags |= AVFMTCTX_UNSEEKABLE;
+        // TODO the bellow sort of works, the -t 1 is not respected
+        // but it only works on a local m3u8 file; why?
+        // ./ffmpeg_g -y -ss 1734846737.298000 -t 1 -seek_timestamp 1 -i stream4/stream4.m3u8 -copyts -hls_segment_type fmp4 -c copy stream4cut/stream4cut.m3u8
+          }
     return ret;
 }
 
@@ -1752,6 +1788,8 @@ static int find_timestamp_in_playlist(HLSContext *c, struct playlist *pls,
                                       int64_t timestamp, int64_t *seq_no,
                                       int64_t *seg_start_ts)
 {
+    av_log(NULL, AV_LOG_WARNING, "find_timestamp_in_playlist timestamp: %lld first timestamp: %lld", timestamp, c->first_timestamp);
+    // TODO c->first_timestamp is wrong IT SHOULD BE THE FIRST TIMESTAMP OF THE PLAYLIST; figure it out
     int i;
     int64_t pos = c->first_timestamp == AV_NOPTS_VALUE ?
                   0 : c->first_timestamp;
@@ -1986,6 +2024,7 @@ static int hls_read_header(AVFormatContext *s)
     c->interrupt_callback = &s->interrupt_callback;
 
     c->first_packet = 1;
+    av_log(NULL, AV_LOG_WARNING, "Setting first_timestamp to %lld and cur_timestamp to %lld", AV_NOPTS_VALUE, AV_NOPTS_VALUE);
     c->first_timestamp = AV_NOPTS_VALUE;
     c->cur_timestamp = AV_NOPTS_VALUE;
 
@@ -2377,8 +2416,11 @@ static int hls_read_packet(AVFormatContext *s, AVPacket *pkt)
 
                     if (c->first_timestamp == AV_NOPTS_VALUE &&
                         pls->pkt->dts       != AV_NOPTS_VALUE)
+                        av_log(NULL, AV_LOG_WARNING, "\nDTS: %lld", pls->pkt->dts);
+                        //av_log(NULL, AV_LOG_WARNING, "\nfirst_timestamp: %lld", c->first_timestamp);
                         c->first_timestamp = av_rescale_q(pls->pkt->dts,
                             get_timebase(pls), AV_TIME_BASE_Q);
+                        //av_log(NULL, AV_LOG_WARNING, "\nfirst_timestamp av_rescale_q: %lld", c->first_timestamp);
                 }
 
                 seg = current_segment(pls);
@@ -2500,9 +2542,11 @@ static int hls_read_seek(AVFormatContext *s, int stream_index,
     int stream_subdemuxer_index;
     int64_t first_timestamp, seek_timestamp, duration;
     int64_t seq_no, seg_start_ts;
-
-    if ((flags & AVSEEK_FLAG_BYTE) || (c->ctx->ctx_flags & AVFMTCTX_UNSEEKABLE))
+    av_log(NULL, AV_LOG_WARNING, "\nhls_read_seek\n FLAGS: %d \n first_timestamp %lld", flags, c->first_timestamp);
+    if ((flags & AVSEEK_FLAG_BYTE) || (c->ctx->ctx_flags & AVFMTCTX_UNSEEKABLE)) {
+        av_log(NULL, AV_LOG_WARNING, "\nHLS stream is unseekable");
         return AVERROR(ENOSYS);
+    }
 
     first_timestamp = c->first_timestamp == AV_NOPTS_VALUE ?
                       0 : c->first_timestamp;
@@ -2518,6 +2562,7 @@ static int hls_read_seek(AVFormatContext *s, int stream_index,
         return AVERROR(EIO);
 
     /* find the playlist with the specified stream */
+    av_log(NULL, AV_LOG_WARNING, "\n c->n_playlists: %d", c->n_playlists);
     for (i = 0; i < c->n_playlists; i++) {
         struct playlist *pls = c->playlists[i];
         for (j = 0; j < pls->n_main_streams; j++) {
@@ -2566,7 +2611,7 @@ static int hls_read_seek(AVFormatContext *s, int stream_index,
 
         pls->seek_timestamp = seek_timestamp;
         pls->seek_flags = flags;
-
+        av_log(NULL, AV_LOG_WARNING, "\npls != seek_pls, %d", pls != seek_pls);
         if (pls != seek_pls) {
             /* set closest segment seq_no for playlists not handled above */
             find_timestamp_in_playlist(c, pls, seek_timestamp, &pls->cur_seq_no, NULL);
