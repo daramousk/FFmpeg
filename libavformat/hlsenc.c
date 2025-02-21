@@ -19,7 +19,7 @@
  * License along with FFmpeg; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
-
+#include <float.h>
 #include "config.h"
 #include "config_components.h"
 #include <stdint.h>
@@ -90,6 +90,7 @@ typedef struct HLSSegment {
 
     struct HLSSegment *next;
     double discont_program_date_time;
+    int gap;
 } HLSSegment;
 
 typedef enum HLSFlags {
@@ -109,6 +110,7 @@ typedef enum HLSFlags {
     HLS_PERIODIC_REKEY = (1 << 12),
     HLS_INDEPENDENT_SEGMENTS = (1 << 13),
     HLS_I_FRAMES_ONLY = (1 << 14),
+    HLS_APPEND_LIST_ADD_GAP = (1 << 15),
 } HLSFlags;
 
 typedef enum {
@@ -190,6 +192,7 @@ typedef struct VariantStream {
     const char *ccgroup;  /* closed caption group name */
     const char *varname;  /* variant name */
     const char *subtitle_varname;  /* subtitle variant name */
+    int gap;
 } VariantStream;
 
 typedef struct ClosedCaptionsStream {
@@ -263,6 +266,11 @@ typedef struct HLSContext {
     char *headers;
     int has_default_key; /* has DEFAULT field of var_stream_map */
     int has_video_m3u8; /* has video stream m3u8 list */
+    float can_skip_until;
+    int can_skip_dateranges;
+    float hold_back;
+    float part_hold_back;
+    int can_block_reload;
 } HLSContext;
 
 static int strftime_expand(const char *fmt, char **dest)
@@ -1191,10 +1199,16 @@ static int hls_append_segment(struct AVFormatContext *s, HLSContext *hls,
     en->next     = NULL;
     en->discont  = 0;
     en->discont_program_date_time = 0;
+    en->gap = 0;
 
     if (vs->discontinuity) {
         en->discont = 1;
         vs->discontinuity = 0;
+    }
+
+    if (hls->flags & HLS_APPEND_LIST_ADD_GAP && vs->gap) {
+        en->gap = 1;
+        vs->gap = 0;
     }
 
     if (hls->key_info_file || hls->encrypt) {
@@ -1276,6 +1290,7 @@ static int parse_playlist(AVFormatContext *s, const char *url, VariantStream *vs
     }
 
     vs->discontinuity = 0;
+    vs->gap = 0;
     while (!avio_feof(in)) {
         ff_get_chomp_line(in, line, sizeof(line));
         if (av_strstart(line, "#EXT-X-MEDIA-SEQUENCE:", &ptr)) {
@@ -1292,6 +1307,24 @@ static int parse_playlist(AVFormatContext *s, const char *url, VariantStream *vs
         } else if (av_strstart(line, "#EXT-X-DISCONTINUITY", &ptr)) {
             is_segment = 1;
             vs->discontinuity = 1;
+        } else if (av_strstart(line, "#EXT-X-GAP", &ptr)) {
+            is_segment = 1;
+            vs->gap = 1;
+        } else if (av_strstart(line, "#EXT-X-ENDLIST", &ptr)) {
+            vs->gap = 1;
+            
+            // new_start_pos = avio_tell(vs->avf->pb);
+            // vs->size = new_start_pos - vs->start_pos;
+            // ret = hls_append_segment(s, hls, vs, vs->initial_prog_date_time - vs->last_segment->discont_program_date_time, vs->start_pos, vs->size);
+            // vs->gap = 0;
+            // if (discont_program_date_time) {
+            //     vs->last_segment->discont_program_date_time = discont_program_date_time;
+            //     discont_program_date_time += vs->duration;
+            // }
+            // if (ret < 0) {
+            //     goto fail;
+            // }
+            // vs->start_pos = new_start_pos;
         } else if (av_strstart(line, "#EXTINF:", &ptr)) {
             is_segment = 1;
             vs->duration = atof(ptr);
@@ -1364,6 +1397,7 @@ static int parse_playlist(AVFormatContext *s, const char *url, VariantStream *vs
                 new_start_pos = avio_tell(vs->avf->pb);
                 vs->size = new_start_pos - vs->start_pos;
                 ret = hls_append_segment(s, hls, vs, vs->duration, vs->start_pos, vs->size);
+                vs->gap = 0;
                 if (discont_program_date_time) {
                     vs->last_segment->discont_program_date_time = discont_program_date_time;
                     discont_program_date_time += vs->duration;
@@ -1683,6 +1717,7 @@ static int hls_window(AVFormatContext *s, int last, VariantStream *vs)
     vs->discontinuity_set = 0;
     ff_hls_write_playlist_header(byterange_mode ? hls->m3u8_out : vs->out, hls->version, hls->allowcache,
                                  target_duration, sequence, hls->pl_type, hls->flags & HLS_I_FRAMES_ONLY);
+    ff_hls_write_playlist_delivery_directives(byterange_mode ? hls->m3u8_out : vs->out, hls->can_skip_until, hls->can_skip_dateranges, hls->hold_back, hls->part_hold_back, hls->can_block_reload);
 
     if ((hls->flags & HLS_DISCONT_START) && sequence==hls->start_sequence && vs->discontinuity_set==0) {
         avio_printf(byterange_mode ? hls->m3u8_out : vs->out, "#EXT-X-DISCONTINUITY\n");
@@ -1706,13 +1741,13 @@ static int hls_window(AVFormatContext *s, int last, VariantStream *vs)
             ff_hls_write_init_file(byterange_mode ? hls->m3u8_out : vs->out, (hls->flags & HLS_SINGLE_FILE) ? en->filename : vs->fmp4_init_filename,
                                    hls->flags & HLS_SINGLE_FILE, vs->init_range_length, 0);
         }
-
         ret = ff_hls_write_file_entry(byterange_mode ? hls->m3u8_out : vs->out, en->discont, byterange_mode,
                                       en->duration, hls->flags & HLS_ROUND_DURATIONS,
                                       en->size, en->pos, hls->baseurl,
                                       en->filename,
                                       en->discont_program_date_time ? &en->discont_program_date_time : prog_date_time_p,
-                                      en->keyframe_size, en->keyframe_pos, hls->flags & HLS_I_FRAMES_ONLY);
+                                      en->keyframe_size, en->keyframe_pos, hls->flags & HLS_I_FRAMES_ONLY,
+                                      en->gap);
         if (en->discont_program_date_time)
             en->discont_program_date_time -= en->duration;
         if (ret < 0) {
@@ -1736,7 +1771,7 @@ static int hls_window(AVFormatContext *s, int last, VariantStream *vs)
         for (en = vs->segments; en; en = en->next) {
             ret = ff_hls_write_file_entry(hls->sub_m3u8_out, en->discont, byterange_mode,
                                           en->duration, 0, en->size, en->pos,
-                                          hls->baseurl, en->sub_filename, NULL, 0, 0, 0);
+                                          hls->baseurl, en->sub_filename, NULL, 0, 0, 0, en->gap);
             if (ret < 0) {
                 av_log(s, AV_LOG_WARNING, "ff_hls_write_file_entry get error\n");
             }
@@ -1927,6 +1962,22 @@ static int hls_start(AVFormatContext *s, VariantStream *vs)
             }
 
         }
+    }
+    if (c->can_skip_until && c->can_skip_until * 1000000.0 < 6 * c->time) {
+        av_log(oc, AV_LOG_ERROR, "can_skip_until must be at least six times the segment_time\n");
+        return AVERROR(EINVAL);
+    }
+    if (c->can_skip_dateranges && !c->can_skip_until) {
+        av_log(oc, AV_LOG_ERROR, "can_skip_dateranges requires can_skip_until as well\n");
+        return AVERROR(EINVAL);
+    }
+    if (c->hold_back && c->hold_back * 1000000.0 < 3 * c->time) {
+        av_log(oc, AV_LOG_ERROR, "hold_back must be at least three times larger than segment_time\n");
+        return AVERROR(EINVAL);
+    }
+    if (c->part_hold_back && c->part_hold_back * 1000000.0 < 2 * c->time) {
+        av_log(oc, AV_LOG_ERROR, "part_hold_back must be at least two times larger than segment_time\n");
+        return AVERROR(EINVAL);
     }
     if (vs->vtt_basename) {
         set_http_options(s, &options, c);
@@ -2709,6 +2760,12 @@ static int hls_write_packet(AVFormatContext *s, AVPacket *pkt)
         }
 
         cur_duration = (double)(pkt->pts - vs->end_pts) * st->time_base.num / st->time_base.den;
+        // TODO is this that ads the new segment when appending on the playlist? vs->last_segment->gap?
+        // how do i create one with the duration of the discontinuity?
+        // shouldnt the new segment be starting at vs->end_pts and have a duration of pkt->pts - vs->end_pts?? please make this work please
+        if (vs->last_segment->gap) {
+            ret = hls_append_segment(s, hls, vs, cur_duration, vs->start_pos, vs->size);
+        }
         ret = hls_append_segment(s, hls, vs, cur_duration, vs->start_pos, vs->size);
         vs->end_pts = pkt->pts;
         vs->duration = 0;
@@ -3190,6 +3247,10 @@ static int hls_init(AVFormatContext *s)
         if ((ret = hls_mux_init(s, vs)) < 0)
             return ret;
 
+        if (hls->flags & HLS_APPEND_LIST_ADD_GAP && !(hls->flags & HLS_APPEND_LIST)) {
+            av_log(s, AV_LOG_ERROR, "append_list_add_gap can only be used with append_list\n");
+            return AVERROR(EINVAL);
+        }
         if (hls->flags & HLS_APPEND_LIST) {
             parse_playlist(s, vs->m3u8_name, vs);
             vs->discontinuity = 1;
@@ -3243,6 +3304,7 @@ static const AVOption options[] = {
     {"omit_endlist", "Do not append an endlist when ending stream", 0, AV_OPT_TYPE_CONST, {.i64 = HLS_OMIT_ENDLIST }, 0, UINT_MAX,   E, .unit = "flags"},
     {"split_by_time", "split the hls segment by time which user set by hls_time", 0, AV_OPT_TYPE_CONST, {.i64 = HLS_SPLIT_BY_TIME }, 0, UINT_MAX,   E, .unit = "flags"},
     {"append_list", "append the new segments into old hls segment list", 0, AV_OPT_TYPE_CONST, {.i64 = HLS_APPEND_LIST }, 0, UINT_MAX,   E, .unit = "flags"},
+    {"append_list_add_gap", "Can only be used with append_list; prepends a null segment marked with EXT-X-GAP", 0, AV_OPT_TYPE_CONST, {.i64 = HLS_APPEND_LIST_ADD_GAP }, 0, UINT_MAX,   E, .unit = "flags"},
     {"program_date_time", "add EXT-X-PROGRAM-DATE-TIME", 0, AV_OPT_TYPE_CONST, {.i64 = HLS_PROGRAM_DATE_TIME }, 0, UINT_MAX,   E, .unit = "flags"},
     {"second_level_segment_index", "include segment index in segment filenames when use_localtime", 0, AV_OPT_TYPE_CONST, {.i64 = HLS_SECOND_LEVEL_SEGMENT_INDEX }, 0, UINT_MAX,   E, .unit = "flags"},
     {"second_level_segment_duration", "include segment duration in segment filenames when use_localtime", 0, AV_OPT_TYPE_CONST, {.i64 = HLS_SECOND_LEVEL_SEGMENT_DURATION }, 0, UINT_MAX,   E, .unit = "flags"},
@@ -3270,6 +3332,11 @@ static const AVOption options[] = {
     {"timeout", "set timeout for socket I/O operations", OFFSET(timeout), AV_OPT_TYPE_DURATION, { .i64 = -1 }, -1, INT_MAX, .flags = E },
     {"ignore_io_errors", "Ignore IO errors for stable long-duration runs with network output", OFFSET(ignore_io_errors), AV_OPT_TYPE_BOOL, { .i64 = 0 }, 0, 1, E },
     {"headers", "set custom HTTP headers, can override built in default headers", OFFSET(headers), AV_OPT_TYPE_STRING, { .str = NULL }, 0, 0, E },
+    {"can_skip_until", "Delivery Directive CAN-SKIP-UNTIL. Used for producing Playlist Deltas", OFFSET(can_skip_until), AV_OPT_TYPE_FLOAT, {.dbl = 0}, 0, FLT_MAX, E},
+    {"can_skip_dateranges", "Delivery Directive CAN-SKIP-DATERANGES. Used for producing Playlist Deltas", OFFSET(can_skip_dateranges), AV_OPT_TYPE_BOOL, {.i64 = 0}, 0, 1, E},
+    {"hold_back", "Delivery Directive HOLD-BACK. Used for producing Playlist Deltas", OFFSET(hold_back), AV_OPT_TYPE_FLOAT, {.dbl = 0}, 0, FLT_MAX, E, },
+    {"part_hold_back", "Delivery Directive PART-HOLD-BACK. Used for producing Playlist Deltas", OFFSET(part_hold_back), AV_OPT_TYPE_FLOAT, {.dbl = 0}, 0, FLT_MAX, E, },
+    {"can_block_reload", "Delivery Directive CAN-BLOCK-RELOAD. Used for producing Playlist Deltas", OFFSET(can_block_reload), AV_OPT_TYPE_BOOL, {.i64 = 0}, 0, 1, E},
     { NULL },
 };
 

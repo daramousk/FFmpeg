@@ -9707,7 +9707,7 @@ static int mov_read_rtmd_track(AVFormatContext *s, AVStream *st)
 }
 
 static int mov_read_timecode_track(AVFormatContext *s, AVStream *st)
-{
+{// TODO see what timecode track is and if it does the trick
     MOVStreamContext *sc = st->priv_data;
     FFStream *const sti = ffstream(st);
     int flags = 0;

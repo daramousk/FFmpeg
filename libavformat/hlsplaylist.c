@@ -131,6 +131,28 @@ void ff_hls_write_playlist_header(AVIOContext *out, int version, int allowcache,
     }
 }
 
+void ff_hls_write_playlist_delivery_directives(AVIOContext *out, float can_skip_until, int can_skip_dateranges, float hold_back, float part_hold_back, int can_block_reload) {
+    if (!out || (!can_skip_until && !can_skip_dateranges && !hold_back && !part_hold_back && !can_block_reload))
+        return;
+    avio_printf(out, "#EXT-X-SERVER-CONTROL:");
+    if (can_skip_until) {
+        avio_printf(out, ",CAN-SKIP-UNTIL=%f", can_skip_until);
+    }
+    if (can_skip_dateranges) {
+        avio_printf(out, ",CAN-SKIP-DATERANGES=YES");
+    }
+    if (hold_back) {
+        avio_printf(out, ",HOLD-BACK=%f", hold_back);
+    }
+    if (part_hold_back) {
+        avio_printf(out, ",PART-HOLD-BACK=%f", part_hold_back);
+    }
+    if (can_block_reload) {
+        avio_printf(out, ",CAN-BLOCK-RELOAD=YES");
+    }
+    avio_printf(out, "\n");
+}
+
 void ff_hls_write_init_file(AVIOContext *out, const char *filename,
                             int byterange_mode, int64_t size, int64_t pos)
 {
@@ -148,13 +170,16 @@ int ff_hls_write_file_entry(AVIOContext *out, int insert_discont,
                             const char *baseurl /* Ignored if NULL */,
                             const char *filename, double *prog_date_time,
                             int64_t video_keyframe_size, int64_t video_keyframe_pos,
-                            int iframe_mode)
+                            int iframe_mode, int insert_gap)
 {
     if (!out || !filename)
         return AVERROR(EINVAL);
 
     if (insert_discont) {
         avio_printf(out, "#EXT-X-DISCONTINUITY\n");
+    }
+    if (insert_gap) {
+        avio_printf(out, "#EXT-X-GAP\n");
     }
     if (round_duration)
         avio_printf(out, "#EXTINF:%ld,\n",  lrint(duration));

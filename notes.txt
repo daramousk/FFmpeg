@@ -1,0 +1,3 @@
+./configure --enable-openssl --disable-doc --enable-libopenh264 --enable-libsrt --enable-libx264 --enable-gpl --enable-version3
+# write the command which illiminates discontinuities
+./ffmpeg_g -i https://demo-media-gateway.cuttingedge.com.au/stream1.m3u8 -hls_list_size 0 -hls_flags append_list+discont_start+append_list_add_gap stream1/stream1.m3u8
