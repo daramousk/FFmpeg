@@ -19,7 +19,7 @@
  * License along with FFmpeg; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
-
+#include <float.h>
 #include "config.h"
 #include "config_components.h"
 #include <stdint.h>
@@ -263,6 +263,11 @@ typedef struct HLSContext {
     char *headers;
     int has_default_key; /* has DEFAULT field of var_stream_map */
     int has_video_m3u8; /* has video stream m3u8 list */
+    float can_skip_until;
+    int can_skip_dateranges;
+    float hold_back;
+    float part_hold_back;
+    int can_block_reload;
 } HLSContext;
 
 static int strftime_expand(const char *fmt, char **dest)
@@ -1651,6 +1656,8 @@ static int hls_window(AVFormatContext *s, int last, VariantStream *vs)
     vs->discontinuity_set = 0;
     ff_hls_write_playlist_header(byterange_mode ? hls->m3u8_out : vs->out, hls->version, hls->allowcache,
                                  target_duration, sequence, hls->pl_type, hls->flags & HLS_I_FRAMES_ONLY);
+    // TODO if we are already serving a delta playlist we do not write directives; rather we put a #EXT-X-SKIP:$segments_skipped_int
+    ff_hls_write_playlist_delivery_directives(byterange_mode ? hls->m3u8_out : vs->out, hls->can_skip_until, hls->can_skip_dateranges, hls->hold_back, hls->part_hold_back, hls->can_block_reload);
 
     if ((hls->flags & HLS_DISCONT_START) && sequence==hls->start_sequence && vs->discontinuity_set==0) {
         avio_printf(byterange_mode ? hls->m3u8_out : vs->out, "#EXT-X-DISCONTINUITY\n");
@@ -1659,6 +1666,7 @@ static int hls_window(AVFormatContext *s, int last, VariantStream *vs)
     if (vs->has_video && (hls->flags & HLS_INDEPENDENT_SEGMENTS)) {
         avio_printf(byterange_mode ? hls->m3u8_out : vs->out, "#EXT-X-INDEPENDENT-SEGMENTS\n");
     }
+    // TODO here add an EXT-X-SKIP tag; and below drop the old segments; verify this again tomorrow
     for (en = vs->segments; en; en = en->next) {
         if ((hls->encrypt || hls->key_info_file) && (!key_uri || strcmp(en->key_uri, key_uri) ||
                                     av_strcasecmp(en->iv_string, iv_string))) {
@@ -1895,6 +1903,22 @@ static int hls_start(AVFormatContext *s, VariantStream *vs)
             }
 
         }
+    }
+    if (c->can_skip_until && c->can_skip_until < 6 * c->time) {
+        av_log(oc, AV_LOG_ERROR, "can_skip_until must be at least six times the segment_time\n");
+        return AVERROR(EINVAL);
+    }
+    if (c->can_skip_dateranges && !c->can_skip_until) {
+        av_log(oc, AV_LOG_ERROR, "can_skip_dateranges requires can_skip_until as well\n");
+        return AVERROR(EINVAL);
+    }
+    if (c->hold_back && c->hold_back < 3 * c->time) {
+        av_log(oc, AV_LOG_ERROR, "hold_back must be at least three times larger than segment_time\n");
+        return AVERROR(EINVAL);
+    }
+    if (c->part_hold_back && c->part_hold_back < 2 * c->time) {
+        av_log(oc, AV_LOG_ERROR, "part_hold_back must be at least two times larger than segment_time\n");
+        return AVERROR(EINVAL);
     }
     if (vs->vtt_basename) {
         set_http_options(s, &options, c);
@@ -3238,6 +3262,11 @@ static const AVOption options[] = {
     {"timeout", "set timeout for socket I/O operations", OFFSET(timeout), AV_OPT_TYPE_DURATION, { .i64 = -1 }, -1, INT_MAX, .flags = E },
     {"ignore_io_errors", "Ignore IO errors for stable long-duration runs with network output", OFFSET(ignore_io_errors), AV_OPT_TYPE_BOOL, { .i64 = 0 }, 0, 1, E },
     {"headers", "set custom HTTP headers, can override built in default headers", OFFSET(headers), AV_OPT_TYPE_STRING, { .str = NULL }, 0, 0, E },
+    {"can_skip_until", "Delivery Directive CAN-SKIP-UNTIL. Used for producing Playlist Deltas", OFFSET(can_skip_until), AV_OPT_TYPE_FLOAT, {.dbl = 0}, 0, FLT_MAX, E},
+    {"can_skip_dateranges", "Delivery Directive CAN-SKIP-DATERANGES. Used for producing Playlist Deltas", OFFSET(can_skip_dateranges), AV_OPT_TYPE_BOOL, {.i64 = 0}, 0, 1, E},
+    {"hold_back", "Delivery Directive HOLD-BACK. Used for producing Playlist Deltas", OFFSET(hold_back), AV_OPT_TYPE_FLOAT, {.dbl = 0}, 0, FLT_MAX, E, },
+    {"part_hold_back", "Delivery Directive PART-HOLD-BACK. Used for producing Playlist Deltas", OFFSET(part_hold_back), AV_OPT_TYPE_FLOAT, {.dbl = 0}, 0, FLT_MAX, E, },
+    {"can_block_reload", "Delivery Directive CAN-BLOCK-RELOAD. Used for producing Playlist Deltas", OFFSET(can_block_reload), AV_OPT_TYPE_BOOL, {.i64 = 0}, 0, 1, E},
     { NULL },
 };
 

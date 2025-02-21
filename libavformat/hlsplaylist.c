@@ -131,6 +131,27 @@ void ff_hls_write_playlist_header(AVIOContext *out, int version, int allowcache,
     }
 }
 
+void ff_hls_write_playlist_delivery_directives(AVIOContext *out, float can_skip_until, int can_skip_dateranges, float hold_back, float part_hold_back, int can_block_reload) {
+    if (!out || (!can_skip_until && !can_skip_dateranges && !hold_back && !part_hold_back && !can_block_reload))
+        return;
+    avio_printf(out, "#EXT-X-SERVER-CONTROL:");
+    if (can_skip_until) {
+        avio_printf(out, ",CAN-SKIP-UNTIL=%f", can_skip_until);
+    }
+    if (can_skip_dateranges) {
+        avio_printf(out, ",CAN-SKIP-DATERANGES=YES");
+    }
+    if (hold_back) {
+        avio_printf(out, ",HOLD-BACK=%f", hold_back);
+    }
+    if (part_hold_back) {
+        avio_printf(out, ",PART-HOLD-BACK=%f", part_hold_back);
+    }
+    if (can_block_reload) {
+        avio_printf(out, ",CAN-BLOCK-RELOAD=YES");
+    }
+}
+
 void ff_hls_write_init_file(AVIOContext *out, const char *filename,
                             int byterange_mode, int64_t size, int64_t pos)
 {

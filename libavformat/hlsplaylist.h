@@ -50,6 +50,7 @@ void ff_hls_write_stream_info(AVStream *st, AVIOContext *out, int bandwidth,
 void ff_hls_write_playlist_header(AVIOContext *out, int version, int allowcache,
                                   int target_duration, int64_t sequence,
                                   uint32_t playlist_type, int iframe_mode);
+void ff_hls_write_playlist_delivery_directives(AVIOContext *out, float can_skip_until, int can_skip_dateranges, float hold_back, float part_hold_back, int can_block_reload);
 void ff_hls_write_init_file(AVIOContext *out, const char *filename,
                             int byterange_mode, int64_t size, int64_t pos);
 int ff_hls_write_file_entry(AVIOContext *out, int insert_discont,

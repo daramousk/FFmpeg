@@ -1821,7 +1821,7 @@ int ifile_open(const OptionsContext *o, const char *filename, Scheduler *sch)
         }
         ret = avformat_seek_file(ic, -1, INT64_MIN, seek_timestamp, seek_timestamp, 0);
         if (ret < 0) {
-            av_log(d, AV_LOG_WARNING, "could not seek to position %0.3f\n",
+            av_log(d, AV_LOG_WARNING, "could not seek to position %0.3f\nTry again using -live_start_index 0",
                    (double)timestamp / AV_TIME_BASE);
         }
     }

@@ -794,6 +794,23 @@ static int parse_playlist(HLSContext *c, const char *url,
     struct segment **prev_segments = NULL;
     int prev_n_segments = 0;
     int64_t prev_start_seq_no = -1;
+    int hls_skip_yes = 0;
+    int hls_skip_v2 = 0;
+    float can_skip_until = 0;
+    int can_skip_dateranges = 0;
+    float hold_back = 0;
+    float part_hold_back = 0;
+    int can_block_reload = 0;
+    URLComponents url_components;
+    ret = ff_url_decompose(&url_components, url, NULL);
+    if (ret < 0) {
+        goto fail;
+    }
+    if (av_strnstr(url_components.query, "_HLS_skip=YES", sizeof(url_components.query))) {
+        hls_skip_yes = 1;
+    } else if (av_strnstr(url_components.query, "_HLS_skip=v2", sizeof(url_components.query))) {
+        hls_skip_v2 = 1;
+    }
 
     if (is_http && !in && c->http_persistent && c->playlist_pb) {
         in = c->playlist_pb;
@@ -971,6 +988,26 @@ static int parse_playlist(HLSContext *c, const char *url,
         } else if (av_strstart(line, "#", NULL)) {
             av_log(c->ctx, AV_LOG_INFO, "Skip ('%s')\n", line);
             continue;
+        } else if (av_strstart(line, "#EXT-X-SERVER-CONTROL", &ptr)) {
+            av_log(c->ctx, AV_LOG_INFO, "Delta playlists supported");
+            const char *can_skip_until_val = NULL;
+            if (av_strstart(ptr, "CAN-SKIP-UNTIL=", &can_skip_until_val)) {
+                can_skip_until = strtof(can_skip_until_val, NULL);
+                if (av_strstart(ptr, "CAN-SKIP-DATERANGES=YES", NULL)) {
+                    can_skip_dateranges = 1;
+                }
+            }
+            const char *hold_back_val = NULL;
+            if (av_strstart(ptr, "HOLD-BACK=", &hold_back_val)) {
+                hold_back = strtof(hold_back_val, NULL);
+            }
+            const char *part_hold_back_val = NULL;
+            if (av_strstart(ptr, "PART-HOLD-BACK=", &part_hold_back_val)) {
+                part_hold_back = strtof(part_hold_back_val, NULL);
+            }
+            if (av_strstart(ptr, "CAN-BLOCK-RELOAD=YES", NULL)) {
+                can_block_reload = 1;
+            }
         } else if (line[0]) {
             if (is_variant) {
                 if (!new_variant(c, &variant_info, line, url)) {
@@ -1083,6 +1120,16 @@ static int parse_playlist(HLSContext *c, const char *url,
     }
     if (pls)
         pls->last_load_time = av_gettime_relative();
+    if (can_skip_until && !pls->finished && (hls_skip_yes || hls_skip_v2)) {
+        float temp_duration;
+        for (int i = pls->n_segments; 1; i-- ) {
+            temp_duration += pls->segments[i]->duration;
+            if (temp_duration > can_skip_until) {
+                free_segment_dynarray(pls->segments, i);
+                break;
+            }
+        }
+}
 
 fail:
     av_free(new_url);
