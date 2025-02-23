@@ -1656,7 +1656,6 @@ static int hls_window(AVFormatContext *s, int last, VariantStream *vs)
     vs->discontinuity_set = 0;
     ff_hls_write_playlist_header(byterange_mode ? hls->m3u8_out : vs->out, hls->version, hls->allowcache,
                                  target_duration, sequence, hls->pl_type, hls->flags & HLS_I_FRAMES_ONLY);
-    // TODO if we are already serving a delta playlist we do not write directives; rather we put a #EXT-X-SKIP:$segments_skipped_int
     ff_hls_write_playlist_delivery_directives(byterange_mode ? hls->m3u8_out : vs->out, hls->can_skip_until, hls->can_skip_dateranges, hls->hold_back, hls->part_hold_back, hls->can_block_reload);
 
     if ((hls->flags & HLS_DISCONT_START) && sequence==hls->start_sequence && vs->discontinuity_set==0) {
@@ -1666,7 +1665,6 @@ static int hls_window(AVFormatContext *s, int last, VariantStream *vs)
     if (vs->has_video && (hls->flags & HLS_INDEPENDENT_SEGMENTS)) {
         avio_printf(byterange_mode ? hls->m3u8_out : vs->out, "#EXT-X-INDEPENDENT-SEGMENTS\n");
     }
-    // TODO here add an EXT-X-SKIP tag; and below drop the old segments; verify this again tomorrow
     for (en = vs->segments; en; en = en->next) {
         if ((hls->encrypt || hls->key_info_file) && (!key_uri || strcmp(en->key_uri, key_uri) ||
                                     av_strcasecmp(en->iv_string, iv_string))) {
