@@ -1902,7 +1902,7 @@ static int hls_start(AVFormatContext *s, VariantStream *vs)
 
         }
     }
-    if (c->can_skip_until && c->can_skip_until < 6 * c->time) {
+    if (c->can_skip_until && c->can_skip_until * 1000000.0 < 6 * c->time) {
         av_log(oc, AV_LOG_ERROR, "can_skip_until must be at least six times the segment_time\n");
         return AVERROR(EINVAL);
     }
@@ -1910,11 +1910,11 @@ static int hls_start(AVFormatContext *s, VariantStream *vs)
         av_log(oc, AV_LOG_ERROR, "can_skip_dateranges requires can_skip_until as well\n");
         return AVERROR(EINVAL);
     }
-    if (c->hold_back && c->hold_back < 3 * c->time) {
+    if (c->hold_back && c->hold_back * 1000000.0 < 3 * c->time) {
         av_log(oc, AV_LOG_ERROR, "hold_back must be at least three times larger than segment_time\n");
         return AVERROR(EINVAL);
     }
-    if (c->part_hold_back && c->part_hold_back < 2 * c->time) {
+    if (c->part_hold_back && c->part_hold_back * 1000000.0 < 2 * c->time) {
         av_log(oc, AV_LOG_ERROR, "part_hold_back must be at least two times larger than segment_time\n");
         return AVERROR(EINVAL);
     }

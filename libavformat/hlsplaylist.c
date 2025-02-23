@@ -150,6 +150,7 @@ void ff_hls_write_playlist_delivery_directives(AVIOContext *out, float can_skip_
     if (can_block_reload) {
         avio_printf(out, ",CAN-BLOCK-RELOAD=YES");
     }
+    avio_printf(out, "\n");
 }
 
 void ff_hls_write_init_file(AVIOContext *out, const char *filename,
