@@ -1307,24 +1307,6 @@ static int parse_playlist(AVFormatContext *s, const char *url, VariantStream *vs
         } else if (av_strstart(line, "#EXT-X-DISCONTINUITY", &ptr)) {
             is_segment = 1;
             vs->discontinuity = 1;
-        } else if (av_strstart(line, "#EXT-X-GAP", &ptr)) {
-            is_segment = 1;
-            vs->gap = 1;
-        } else if (av_strstart(line, "#EXT-X-ENDLIST", &ptr)) {
-            vs->gap = 1;
-            
-            // new_start_pos = avio_tell(vs->avf->pb);
-            // vs->size = new_start_pos - vs->start_pos;
-            // ret = hls_append_segment(s, hls, vs, vs->initial_prog_date_time - vs->last_segment->discont_program_date_time, vs->start_pos, vs->size);
-            // vs->gap = 0;
-            // if (discont_program_date_time) {
-            //     vs->last_segment->discont_program_date_time = discont_program_date_time;
-            //     discont_program_date_time += vs->duration;
-            // }
-            // if (ret < 0) {
-            //     goto fail;
-            // }
-            // vs->start_pos = new_start_pos;
         } else if (av_strstart(line, "#EXTINF:", &ptr)) {
             is_segment = 1;
             vs->duration = atof(ptr);
