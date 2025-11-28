@@ -150,6 +150,7 @@ typedef struct OutputStream {
 typedef struct DASHContext {
     const AVClass *class;  /* Class for private options. */
     char *adaptation_sets;
+    char *thumbnails;
     AdaptationSet *as;
     int nb_as;
     int window_size;
@@ -794,6 +795,19 @@ static int write_adaptation_set(AVFormatContext *s, AVIOContext *out, int as_ind
     AVDictionaryEntry *lang, *role;
     int i;
 
+    if (as_index == s->nb_streams - 1 && c->thumbnails) {
+        for (int index = 0; index < s->nb_streams; index++) {
+            AdaptationSet *temp = &c->as[index];
+            if (temp->media_type == AVMEDIA_TYPE_VIDEO) {
+                avio_printf(out, "\t\t<AdaptationSet id=\"%d\" contentType=\"image\">\n", c->as[s->nb_streams - 1].id + 1);
+                avio_printf(out, "\t\t\t<SegmentTemplate media=\"$RepresentationID$/tile_$Number$.jpg\" duration=\"10\"/>\n");
+                avio_printf(out, "\t\t\t<Representation id=\"thumbnails_320x180\" width=\"3200\" height=\"180\">\n");
+                avio_printf(out, "\t\t\t\t<EssentialProperty schemeIdUri=\"http://dashif.org/thumbnail_tile\" value=\"10x1\"/>\n");
+                avio_printf(out, "\t\t\t</Representation>\n");
+                avio_printf(out, "\t\t</AdaptationSet>\n");
+            }
+        }
+    }
     avio_printf(out, "\t\t<AdaptationSet id=\"%d\" contentType=\"%s\" startWithSAP=\"1\" segmentAlignment=\"true\" bitstreamSwitching=\"true\"",
                 as->id, as->media_type == AVMEDIA_TYPE_VIDEO ? "video" : "audio");
     if (as->media_type == AVMEDIA_TYPE_VIDEO && as->max_frame_rate.num && !as->ambiguous_frame_rate && av_cmp_q(as->min_frame_rate, as->max_frame_rate) < 0)
@@ -2399,6 +2413,7 @@ static const AVOption options[] = {
     { "utc_timing_url", "URL of the page that will return the UTC timestamp in ISO format", OFFSET(utc_timing_url), AV_OPT_TYPE_STRING, { 0 }, 0, 0, E },
     { "window_size", "number of segments kept in the manifest", OFFSET(window_size), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, INT_MAX, E },
     { "write_prft", "Write producer reference time element", OFFSET(write_prft), AV_OPT_TYPE_BOOL, {.i64 = -1}, -1, 1, E},
+    { "write_thumbnails", "Generate thumbnails for the video streams. Syntax XxY ex. `640x480`", OFFSET(thumbnails), AV_OPT_TYPE_STRING, { 0 }, 0, 0, AV_OPT_FLAG_ENCODING_PARAM },
     { NULL },
 };
 
